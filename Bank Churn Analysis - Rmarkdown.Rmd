@@ -1,0 +1,145 @@
+---
+title: "Bank Churn Analysis"
+author: "Chris Randall"
+date: "2023-09-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(knitr)
+library(ggplot2)
+library(dplyr)
+library(plotly)
+```
+
+## Introduction
+
+In today's dynamic banking sector, customer churn analysis has emerged as a pivotal instrument for financial institutions. Churn, the departure of customers to competitors, not only impacts revenue but serves as a critical gauge of customer satisfaction and loyalty. Understanding and effectively managing churn is vital for banks seeking to maintain a competitive edge, retain valuable clientele, and navigate the ever-evolving financial landscape. This report analyzes customer records from a fictitious bank but aims to discover realistic trends and correlations to ultimately enhance retention. 
+```{r load csv}
+# Load and preprocess data
+churn_table <- read.csv("/Users/Owner/Downloads/Customer_Churn_Records.csv")
+# Data processing steps
+
+```
+
+## Exit Analysis
+
+Our first analysis simply allows us to see that there are 2038 out of 10000 have churned (or exited) while 7962 are existing customers.
+```{r exit analysis}
+churn_count <- churn_table %>%
+  group_by(Exited) %>%
+  summarize(total_customers = sum(Exited==1, Exited == 0))%>%
+  mutate(percentage = total_customers/10000*100)
+```
+
+
+```{r pressure, echo=FALSE}
+ggplot(churn_count, aes(x = "", y = total_customers, fill = as.factor(Exited))) +
+  geom_bar(stat = "identity") +
+  coord_polar(theta = "y") +
+  theme_void() +
+  labs(title = "Exit Analysis") +
+  scale_fill_discrete(name = "Legend Title") +
+  scale_fill_manual(name = "Exited", 
+                    values = c("0" = "skyblue", "1" = "navyblue"),
+                    labels = c("0" = "Not Exited", "1" = "Exited")) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  geom_text(aes(label = total_customers), position = position_stack(vjust = 0.5))
+```
+
+
+## Country Analysis
+In the country analysis we compare churn percentage in different countries and conclude that there is a significantly higher churn percentage in Germany than other country. 
+```{r}
+country_breakdown <- churn_table %>%
+  group_by(Geography) %>%
+  summarize(total_exited = sum(Exited == 1), 
+            total_customers = n()) %>%
+  mutate(churn_percentage = round(total_exited/total_customers*100,2)) %>%
+  arrange(desc(churn_percentage))
+  
+```
+
+```{r, echo =FALSE}
+kable(country_breakdown)
+```
+
+## Complaint Analysis
+Our data set also allows us to view whether customers have filed a complaint with the bank or not and whether this is a good predictor of someone leaving.
+```{r}
+complaint_analysis <- churn_table %>%
+  group_by(Complain) %>%
+  summarize(exited_count =sum(Exited==1))
+```
+```{r, echo =FALSE}
+kable(complaint_analysis)
+```
+
+In the table above where 0 = "Never Complained" and 1 = "Has Complained" we can see a strong correlation between those who have complained and later left the bank with over 99.8% churn rate.
+
+## Age Analysis
+
+Now we can check to see if there is any relationship between churn rates and our age demographic.
+```{r, echo =FALSE}
+age_ranges <- cut(churn_table$Age, breaks = c(17, 30, 45, 65,100),
+                  labels = c("18-30", "31-45", "46-64", "65+"), right = FALSE)
+
+churn_table$age_ranges <- age_ranges
+```
+
+```{r}
+age_analysis <- churn_table %>%
+  group_by (age_ranges) %>%
+  summarize(exited_customers = sum(Exited ==1),
+            total_customers = n()) %>%
+  mutate(percentage = round(exited_customers/total_customers*100,2))
+```
+We found that the age group of 46-64 have the highest churn rate.
+```{r, echo=FALSE}
+ggplot(age_analysis, aes(x = age_ranges, y = percentage)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  labs(title = "Percentage of Exited Customers by Age Range", x = "Age Range", y = "Percentage (%)") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+## Tenure Analysis
+We also checked to see if there is any relationship between how long someone has been a customer for and churn rates.
+
+```{r}
+tenure_analysis <- churn_table %>%
+  group_by(Tenure) %>%
+  summarize(exited_count =sum(Exited==1),
+            total_customers = n()) %>%
+  mutate(churn_percentage = round(exited_count/total_customers*100))
+```
+Using a double y-axis graph we see that there is not much variation between churn percentage caused by tenure. The variation of churn percentage throughout all years is rather consistent only ranging from 17-24 percent with little trend in any direction.
+```{r, echo = FALSE}
+plot_ly(tenure_analysis, x = ~tenure_analysis$Tenure) %>%
+  add_bars(y = ~tenure_analysis$total_customers, name = "Total Customers", marker = list(color = "rgba(255,165,0,0.7)")) %>%
+  add_lines(y = ~tenure_analysis$churn_percentage, yaxis = "y2", name = "Churn Percentage", line = list(color = "rgba(0,0,255,0.7)")) %>%
+  layout(title = "Tenure effect on Churn Percentage",
+         xaxis = list(title = "Tenure"),
+         yaxis = list(title = "Total Customers"),
+         yaxis2 = list(title = "Churn Percentage", overlaying = "y", side = "right"))
+```
+
+## Predicting Churn
+
+Now that we have identified some key insights that reveal such things as where and who is most likely to churn we can take our findings one step further and create a logistic regression using some of the predictors used in our analysis. Logistic regression is statistical model that predicts the probability of an event taking place. In our case we want to predict the likelihood of someone leaving. 
+
+```{r}
+model1 <- glm(Exited ~ Complain + Age + Tenure + Geography, data = churn_table, family = binomial(link = "logit"))
+```
+```{r, echo=FALSE}
+summary(model1)
+```
+### Interpretations
+- **Complain** The positive coefficient of Complain (13.29994) suggests that customers who have lodged a complaint are significantly more likely to exit the bank compared to those who haven't lodged a complaint.
+- **Age** The positive coefficient of Age (0.07739) indicates that as a customer's age increases, their likelihood of exiting the bank also increases.
+- **Tenure** Although Tenure has a coefficient of -0.05839, it is important to take a deeper dive into the analysis and notice that the p-value is 0.5292 which implies that tenure may not be statistically significant in predicting churn.
+- **Geography** The coefficient of 'GeographyGermany' (-0.54436) suggests that, all else being equal, customers in Germany are less likely to exit the bank compared to customers in the base category (e.g., France). Conversely, the coefficient of 'GeographySpain' (0.23838) indicates that customers in Spain are not significantly different from the base category in terms of churn.
+
+## Conclusion
+In conclusion, our comprehensive analysis of customer churn in the banking industry has shed light on critical factors influencing customer retention. We observed that customer complaints and age play significant roles in predicting churn, highlighting areas for targeted interventions. While tenure and geographical factors exhibited less impact in our model, their consideration remains valuable in understanding customer dynamics. As the banking landscape continues to evolve, our findings serve as a valuable resource for institutions seeking to proactively manage churn, enhance customer satisfaction, and fortify their competitive position. By implementing data-driven strategies, banks can navigate these challenges effectively and foster enduring relationships with their clientele in the ever-changing financial landscape.
